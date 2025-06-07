@@ -8,11 +8,13 @@
 
 namespace stdx {
 
-// Главная функция
 template <details::format_string fmt, details::fixed_string source, typename... Ts>
-consteval details::scan_result<Ts...> scan() { // передайте пакет параметров в scan_result
-// измените реализацию
-    return details::scan_result<Ts...>{42};
+consteval details::scan_result<Ts...> scan() {
+    return []<std::size_t... I>(std::index_sequence<I...>) consteval {
+        return details::scan_result<Ts...> {
+            std::make_tuple(details::parse_input<I, fmt, source, Ts>()...)
+        };
+    }(std::make_index_sequence<sizeof...(Ts)>{});
 }
 
 } // namespace stdx

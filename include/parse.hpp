@@ -2,7 +2,8 @@
 
 #include <charconv>
 #include <concepts>
-#include <optional>
+#include <expected>
+#include <limits>
 #include <system_error>
 
 #include "format_string.hpp"
@@ -12,7 +13,7 @@ namespace stdx::details {
 
 // Шаблонная функция, возвращающая пару позиций в строке с исходными данными, соотвествующих I-ому плейсхолдеру
 // Функция закомментирована, так как еще не реализованы классы, которые она использует
-/*
+
 template<int I, format_string fmt, fixed_string source>
 consteval auto get_current_source_for_parsing() {
     static_assert(I >= 0 && I < fmt.number_placeholders, "Invalid placeholder index");
@@ -21,9 +22,9 @@ consteval auto get_current_source_for_parsing() {
         return std::string_view(fs.data, fs.size() - 1);
     };
 
-    constexpr auto fmt_sv = to_sv(fmt.fmt);
+    constexpr auto fmt_sv = to_sv(fmt.str);
     constexpr auto src_sv = to_sv(source);
-    constexpr auto& positions = fmt.placeholder_positions;
+    constexpr auto& positions = fmt.placeholders;
 
     // Получаем границы текущего плейсхолдера в формате
     constexpr auto pos_i = positions[I];
@@ -64,15 +65,90 @@ consteval auto get_current_source_for_parsing() {
     }();
     return std::pair{src_start, src_end};
 }
-*/
 
-// Реализуйте семейство функция parse_value
+template<typename T>
+concept signed_int = std::is_integral_v<T> && std::is_signed_v<T>;
 
-// Шаблонная функция, выполняющая преобразования исходных данных в конкретный тип на основе I-го плейсхолдера
+template<typename T>
+concept unsigned_int = std::is_integral_v<T> && not std::is_signed_v<T>;
 
-// здесь ваш код
-void parse_input() {  // поменяйте сигнатуру
-    // здесь ваш код
+template<typename T>
+concept string = std::is_same_v<T, std::string_view>;
+
+template<typename T>
+concept allowed_types = string<T> or signed_int<T> or unsigned_int<T>;
+
+
+template<fixed_string str, std::integral T>
+consteval std::expected<T, parse_error> parse_value() {
+    T res{0};
+    bool negative = false;
+    T limit = std::numeric_limits<T>::max();
+    std::size_t pos{0};
+    if constexpr (str.size() > 0 and str.data[0] == '-') {
+        negative = true;
+        pos = 1;
+        limit = std::numeric_limits<T>::min();
+    }
+    auto update_result = [&](T digit) -> std::expected<T, parse_error> {
+        if (negative) {
+            if (res < limit / 10 || res * 10 < limit + digit) {
+                return std::unexpected(parse_error{"Negative integer overflow"});
+            }
+            res = res * 10 - digit;
+        } else {
+            if (res > limit / 10 || res * 10 > limit - digit) {
+                return std::unexpected(parse_error{"Positive integer overflow"});
+            }
+            res = res * 10 + digit;
+        }
+        return res;
+    };
+
+    while (pos < str.size()) {
+        if (str.data[pos] == '\0')
+            break;
+
+        if (str.data[pos] < '0' || str.data[pos] > '9') {
+            return std::unexpected(parse_error{"Invalid character in input"});
+        }
+
+        auto result = update_result(static_cast<T>(str.data[pos] - '0'));
+        if (not result)
+            return result;
+        pos++;
+    }
+    return res;
+}
+
+template<fixed_string str, typename T = std::string_view>
+consteval std::expected<std::string_view, parse_error> parse_value() {
+    return std::string_view{str.data, str.size()};
+}
+
+template<std::size_t I,format_string fmt, fixed_string source, allowed_types T>
+consteval T parse_input() {
+    constexpr auto pos = fmt.placeholders[I];
+    constexpr auto start = pos.first;
+    constexpr auto end = pos.second;
+
+    if constexpr(constexpr auto spec = fixed_string<end - start>{fmt.str.data + start, fmt.str.data + end }; spec.size() > 2) {
+        if constexpr(spec.data[2] == 'd') {
+            static_assert(signed_int<T>, "Type meets the ‘%d’ specifier");
+        }
+        else if constexpr(spec.data[2] == 'u') {
+            static_assert(unsigned_int<T>, "Type meets the ‘%u’ specifier");
+        }
+        else if constexpr(spec.data[2] == 's') {
+            static_assert(string<T>, "Type meets the ‘%s’ specifier");
+        }
+    }
+
+    constexpr auto src = get_current_source_for_parsing<I, fmt, source>();
+    constexpr auto source_for_parsing_start = source.data + src.first;
+    constexpr auto source_for_parsing_end = source.data + src.second;
+
+    return parse_value<fixed_string<src.second - src.first>{source_for_parsing_start, source_for_parsing_end}, T>().value();
 }
 
 } // namespace stdx::details

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <expected>
+#include <utility>
 
 #include "types.hpp"
 
@@ -8,58 +10,50 @@ namespace stdx::details {
 
 // Шаблонный класс для хранения форматирующей строчки и ее особенностей
 // ваш код здесь
+template <fixed_string Str = fixed_string<>{}>
 class format_string {
-    // ваш код здесь
+public:
+    constexpr format_string() noexcept = default;
+    static constexpr auto str = Str;
+
+    static consteval std::expected<size_t, parse_error> get_number_placeholders();
+    static constexpr auto number_placeholders = get_number_placeholders().value();
+
+    static consteval std::array<std::pair<std::size_t, std::size_t>, number_placeholders> get_placeholder_positions();
+    static constexpr auto placeholders = get_placeholder_positions();
 };
 
-// Пользовательский литерал
-/*
-ваш код здесь
-ваш код здесь operator"" _fs()  сигнатуру также поменяйте
-{
-ваш код здесь
-}
-*/
-
-// Функция для получения количества плейсхолдеров и проверки корректности формирующей строки
-// Функция закомментирована, так как еще не реализованы классы, которые она использует
-/*
-// Сделайте эту свободную функцию методом класса format_string
-template<fixed_string str>
-consteval std::expected<size_t, parse_error> get_number_placeholders() {
+template<fixed_string Str>
+consteval std::expected<size_t, parse_error> format_string<Str>::get_number_placeholders() {
     constexpr size_t N = str.size();
     if (!N)
         return 0;
     size_t placeholder_count = 0;
     size_t pos = 0;
-    const size_t size = N - 1; // -1 для игнорирования нуль-терминатора
+    const size_t size = N - 1;
 
     while (pos < size) {
-        // Пропускаем все символы до '{'
         if (str.data[pos] != '{') {
             ++pos;
             continue;
         }
 
-        // Проверяем незакрытый плейсхолдер
         if (pos + 1 >= size) {
             return std::unexpected(parse_error{"Unclosed last placeholder"});
         }
 
-        // Начало плейсхолдера
         ++placeholder_count;
         ++pos;
 
-        // Проверка спецификатора формата
         if (str.data[pos] == '%') {
             ++pos;
             if (pos >= size) {
                 return std::unexpected(parse_error{"Unclosed last placeholder"});
             }
 
-            // Проверяем допустимые спецификаторы
+
             const char spec = str.data[pos];
-            constexpr char valid_specs[] = {'d', 'u', 'f', 's'};
+            constexpr char valid_specs[] = {'d', 'u', 's'};
             bool valid = false;
 
             for (const char s : valid_specs) {
@@ -75,7 +69,6 @@ consteval std::expected<size_t, parse_error> get_number_placeholders() {
             ++pos;
         }
 
-        // Проверяем закрывающую скобку
         if (pos >= size || str.data[pos] != '}') {
             return std::unexpected(parse_error{"\'}\' hasn't been found in appropriate place"});
         }
@@ -84,13 +77,50 @@ consteval std::expected<size_t, parse_error> get_number_placeholders() {
 
     return placeholder_count;
 }
-*/
 
-// Функция для получения позиций плейсхолдеров
+template<fixed_string Str>
+consteval std::array<std::pair<std::size_t, std::size_t>, format_string<Str>::number_placeholders> format_string<Str>::
+get_placeholder_positions() {
+    std::array<std::pair<std::size_t, std::size_t>, number_placeholders> res{};
 
-// ваш код здесь
-void get_placeholder_positions() {  // сигнатуру тоже нужно изменить
-    // ваш код здесь
+    if constexpr (number_placeholders == 0)
+        return res;
+
+    constexpr size_t N = str.size()-1;
+    std::size_t pos = 0;
+    std::size_t array_pos = 0;
+
+    while (pos < N - 1 && array_pos < number_placeholders) {
+        if (str.data[pos] != '{') {
+            ++pos;
+            continue;
+        }
+        res[array_pos] = { 0, 0 };
+        std::get<0>(res[array_pos]) = pos;
+        ++pos; // Пропускаем '{'
+
+
+
+        if (str.data[pos] == '%') {
+            pos += 2; // Пропускаем спецификатор: %d, %u, %s
+        }
+
+        // Конечная позиция спецификатора
+        std::get<1>(res[array_pos]) = pos;
+
+        ++pos;         // Пропускаем '}'
+        ++array_pos;   // Следующий placeholder
+    }
+
+    return res;
 }
+
+
+template <fixed_string str>
+constexpr format_string<str> operator""_fs() {
+    return format_string<str>{};
+}
+
+
 
 } // namespace stdx::details
